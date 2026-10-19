@@ -1,74 +1,10 @@
 /**
  * Local diagnostic: env + OpenAI structured-output schema (no filing upload).
- * Run: node --env-file=.env.local scripts/diagnose-analyze.mjs
+ * Run: npm run diagnose:analyze
  */
 import OpenAI from "openai";
 import { readFileSync, existsSync } from "node:fs";
-
-/** Same schema as lib/types/credit-analysis.ts (for local diagnosis). */
-const creditAnalysisJsonSchema = {
-  type: "object",
-  properties: {
-    overallCreditRisk: {
-      type: "string",
-      enum: ["Low", "Moderate", "High"],
-    },
-    riskSummary: { type: "string" },
-    keyMetrics: {
-      type: "object",
-      properties: {
-        totalDebt: { type: "string" },
-        cash: { type: "string" },
-        netDebt: { type: "string" },
-        ebitda: { type: "string" },
-        netLeverage: { type: "string" },
-        interestCoverage: { type: "string" },
-        liquidity: { type: "string" },
-      },
-      required: [
-        "totalDebt",
-        "cash",
-        "netDebt",
-        "ebitda",
-        "netLeverage",
-        "interestCoverage",
-        "liquidity",
-      ],
-      additionalProperties: false,
-    },
-    keyCreditRisks: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          severity: {
-            type: "string",
-            enum: ["Low", "Moderate", "High"],
-          },
-          explanation: { type: "string" },
-          supportingEvidence: { type: "string" },
-        },
-        required: ["title", "severity", "explanation", "supportingEvidence"],
-        additionalProperties: false,
-      },
-    },
-    liquidityAndMaturities: { type: "string" },
-    diligenceQuestions: {
-      type: "array",
-      items: { type: "string" },
-    },
-  },
-  required: [
-    "overallCreditRisk",
-    "riskSummary",
-    "keyMetrics",
-    "keyCreditRisks",
-    "liquidityAndMaturities",
-    "diligenceQuestions",
-  ],
-  additionalProperties: false,
-};
+import { creditAnalysisJsonSchema } from "../lib/types/credit-analysis";
 
 function loadEnvLocal() {
   if (process.env.OPENAI_API_KEY) return;
@@ -115,7 +51,7 @@ try {
       {
         role: "user",
         content:
-          'Return minimal valid JSON for a fake company with one risk titled "Test".',
+          'Return minimal valid JSON for a fake company with one risk titled "Test". Use "Not available." for unknown metrics.',
       },
     ],
     response_format: {

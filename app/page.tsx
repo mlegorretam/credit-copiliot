@@ -2,8 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import { AnalysisResults } from "@/components/AnalysisResults";
-import { MAX_PDF_BYTES } from "@/lib/constants";
+import { MAX_PDF_BYTES, MAX_PDF_FILES, MAX_TOTAL_PDF_BYTES } from "@/lib/constants";
 import type { CreditAnalysisResult } from "@/lib/types/credit-analysis";
+import { addPdfSelections } from "@/lib/uploads/pdf-files";
 
 const SAMPLE_METRICS = [
   { label: "Net Leverage", value: "3.2x", note: "Total net debt / LTM EBITDA" },
@@ -38,15 +39,19 @@ const SAMPLE_QUESTIONS = [
   "What drove the decline in gross margin in the most recent quarter?",
 ] as const;
 
-function isPdfFile(file: File): boolean {
-  return (
-    file.type === "application/pdf" ||
-    file.name.toLowerCase().endsWith(".pdf")
-  );
-}
-
 function formatMaxSizeMb(): string {
   return `${MAX_PDF_BYTES / (1024 * 1024)} MB`;
+}
+
+function formatTotalSizeMb(): string {
+  return `${MAX_TOTAL_PDF_BYTES / (1024 * 1024)} MB`;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function SampleResultsPreview() {
@@ -65,7 +70,7 @@ function SampleResultsPreview() {
       </div>
       <p className="mt-2 text-sm text-slate-600">
         Run an analysis to replace this preview with live output from your
-        uploaded filing.
+        uploaded filings.
       </p>
 
       <div className="mt-6 space-y-6">
@@ -143,8 +148,9 @@ function SampleResultsPreview() {
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const filesRef = useRef<File[]>([]);
   const [companyName, setCompanyName] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -152,29 +158,28 @@ export default function Home() {
   const [analysisResult, setAnalysisResult] =
     useState<CreditAnalysisResult | null>(null);
 
-  const setPdfFile = useCallback((next: File | null) => {
-    if (next && !isPdfFile(next)) {
-      setFileError("Please upload a PDF file only.");
-      setFile(null);
-      return;
-    }
-    if (next && next.size > MAX_PDF_BYTES) {
-      setFileError(`PDF must be ${formatMaxSizeMb()} or smaller.`);
-      setFile(null);
-      return;
-    }
+  const addIncomingFiles = useCallback((incoming: File[]) => {
+    if (incoming.length === 0) return;
+    const outcome = addPdfSelections(filesRef.current, incoming);
+    filesRef.current = outcome.files;
+    setFiles(outcome.files);
+    setFileError(outcome.error);
+  }, []);
+
+  const removeFileAt = useCallback((index: number) => {
+    const next = filesRef.current.filter((_, itemIndex) => itemIndex !== index);
+    filesRef.current = next;
+    setFiles(next);
     setFileError(null);
-    setFile(next);
   }, []);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragActive(false);
-      const dropped = e.dataTransfer.files[0];
-      if (dropped) setPdfFile(dropped);
+      addIncomingFiles(Array.from(e.dataTransfer.files));
     },
-    [setPdfFile],
+    [addIncomingFiles],
   );
 
   const onAnalyze = async (e: React.FormEvent) => {
@@ -185,8 +190,8 @@ export default function Home() {
       setAnalysisError("Enter a company name before analyzing.");
       return;
     }
-    if (!file) {
-      setAnalysisError("Upload a PDF filing before analyzing.");
+    if (files.length === 0) {
+      setAnalysisError("Upload at least one PDF filing before analyzing.");
       return;
     }
 
@@ -195,7 +200,9 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append("companyName", companyName.trim());
-      formData.append("file", file);
+      for (const file of files) {
+        formData.append("file", file);
+      }
 
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -251,8 +258,8 @@ export default function Home() {
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
         <p className="max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
-          Upload a company filing to identify key credit risks, financial
-          metrics, and areas for further diligence.
+          Upload one or more company filings to identify key credit risks,
+          financial metrics, and areas for further diligence.
         </p>
 
         <form
@@ -279,11 +286,12 @@ export default function Home() {
 
           <div>
             <span className="block text-sm font-medium text-slate-800">
-              Upload company filing
+              Upload company filings
             </span>
             <p className="mt-1 text-xs text-slate-500">
-              PDF only — e.g., 10-K, 10-Q, earnings release (max{" "}
-              {formatMaxSizeMb()})
+              PDF only — 10-K, 10-Q, earnings release, or supplemental
+              financials. Up to {MAX_PDF_FILES} files, {formatMaxSizeMb()} each
+              ({formatTotalSizeMb()} combined).
             </p>
             <div
               role="button"
@@ -334,28 +342,52 @@ export default function Home() {
                 />
               </svg>
               <p className="mt-3 text-sm font-medium text-slate-700">
-                Drag and drop a PDF here, or click to browse
+                {files.length > 0
+                  ? "Drag and drop more PDFs here, or click to browse"
+                  : "Drag and drop PDFs here, or click to browse"}
               </p>
-              {file ? (
-                <p className="mt-2 text-xs text-slate-600">
-                  Selected:{" "}
-                  <span className="font-medium text-slate-800">{file.name}</span>
-                </p>
-              ) : (
-                <p className="mt-2 text-xs text-slate-500">
-                  Text-based PDFs only (no OCR)
-                </p>
-              )}
+              <p className="mt-2 text-xs text-slate-500">
+                Text-based PDFs only (no OCR). A single PDF still works.
+              </p>
             </div>
+            {files.length > 0 ? (
+              <ul className="mt-3 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
+                {files.map((file, index) => (
+                  <li
+                    key={`${file.name}-${file.lastModified}-${index}`}
+                    className="flex items-center justify-between gap-3 px-3 py-2"
+                  >
+                    <span className="min-w-0 truncate text-xs text-slate-700">
+                      <span className="font-medium text-slate-800">
+                        {file.name}
+                      </span>
+                      <span className="text-slate-500">
+                        {" "}
+                        · {formatFileSize(file.size)}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isAnalyzing}
+                      onClick={() => removeFileAt(index)}
+                      className="shrink-0 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <input
               ref={inputRef}
               type="file"
               accept="application/pdf,.pdf"
+              multiple
               className="sr-only"
               disabled={isAnalyzing}
               onChange={(e) => {
-                const selected = e.target.files?.[0] ?? null;
-                setPdfFile(selected);
+                addIncomingFiles(Array.from(e.target.files ?? []));
+                e.target.value = "";
               }}
             />
             {fileError ? (
@@ -384,8 +416,8 @@ export default function Home() {
                 className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700"
                 aria-hidden
               />
-              Analyzing filing… This may take up to a minute for longer
-              documents.
+              Analyzing documents… This may take up to a minute, and longer
+              when several filings are included.
             </div>
           ) : null}
 

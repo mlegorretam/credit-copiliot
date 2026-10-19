@@ -8,6 +8,7 @@ import {
   logAnalyzeError,
   logAnalyzeInfo,
 } from "@/lib/server/analyze-logger";
+import { applyFinancialValidation } from "@/lib/credit/validate-metrics";
 import {
   creditAnalysisJsonSchema,
   creditAnalysisSchema,
@@ -24,9 +25,10 @@ function getOpenAIClient(): OpenAI {
 
 export async function analyzeFilingWithLlm(params: {
   companyName: string;
-  fileName: string;
+  fileNames: string[];
   filingExcerpt: string;
   excerptTruncated: boolean;
+  extractionNotes?: string[];
 }): Promise<CreditAnalysisResult> {
   const client = getOpenAIClient();
   const model = process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
@@ -36,6 +38,7 @@ export async function analyzeFilingWithLlm(params: {
     model,
     userPromptChars: userContent.length,
     excerptTruncated: params.excerptTruncated,
+    documentCount: params.fileNames.length,
   });
 
   let completion;
@@ -103,5 +106,10 @@ export async function analyzeFilingWithLlm(params: {
     riskCount: validated.data.keyCreditRisks.length,
   });
 
-  return validated.data;
+  return applyFinancialValidation(validated.data, {
+    fileNames: params.fileNames,
+    excerpt: params.filingExcerpt,
+    excerptTruncated: params.excerptTruncated,
+    extractionNotes: params.extractionNotes,
+  });
 }

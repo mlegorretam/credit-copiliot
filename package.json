@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "diagnose:analyze": "node --env-file=.env.local scripts/diagnose-analyze.mjs"
+    "check:calculations": "tsx scripts/check-improvements.ts",
+    "diagnose:analyze": "tsx --env-file=.env.local scripts/diagnose-analyze.ts"
   },
   "dependencies": {
     "next": "16.3.8",
@@ -25,6 +26,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
     "tailwindcss": "^4",
+    "tsx": "^4.20.5",
     "typescript": "^5"
   }
 }

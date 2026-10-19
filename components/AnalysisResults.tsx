@@ -3,14 +3,18 @@ import type { CreditAnalysisResult } from "@/lib/types/credit-analysis";
 const METRIC_LABELS: Array<{
   key: keyof CreditAnalysisResult["keyMetrics"];
   label: string;
+  wide?: boolean;
 }> = [
   { key: "totalDebt", label: "Total debt" },
   { key: "cash", label: "Cash" },
   { key: "netDebt", label: "Net debt" },
   { key: "ebitda", label: "EBITDA" },
-  { key: "netLeverage", label: "Net leverage" },
+  { key: "netLeverage", label: "Net leverage (independent)" },
+  { key: "reportedLeverage", label: "Reported leverage" },
   { key: "interestCoverage", label: "Interest coverage" },
   { key: "liquidity", label: "Liquidity" },
+  { key: "affo", label: "AFFO" },
+  { key: "reitMetrics", label: "REIT metrics", wide: true },
 ];
 
 function severityClass(severity: "Low" | "Moderate" | "High"): string {
@@ -40,8 +44,15 @@ export function AnalysisResults({
       {showLiveDisclaimer ? (
         <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
           AI-assisted first-pass credit screen only. Verify all figures, ratios,
-          and conclusions against the source filing and independent research.
+          and conclusions against the source filings and independent research.
           Not investment advice.
+        </p>
+      ) : null}
+
+      {result.analyzedDocuments.length > 0 ? (
+        <p className="text-xs text-slate-600">
+          <span className="font-medium text-slate-700">Documents analyzed: </span>
+          {result.analyzedDocuments.join("; ")}
         </p>
       ) : null}
 
@@ -63,13 +74,17 @@ export function AnalysisResults({
           Key metrics
         </h3>
         <p className="mt-1 text-xs text-slate-500">
-          From filing when stated; otherwise &ldquo;Not available.&rdquo;
+          From the uploaded documents when stated, with the source document
+          identified. Otherwise &ldquo;Not available.&rdquo; Independent ratios
+          are labeled separately from company-reported ratios.
         </p>
         <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {METRIC_LABELS.map(({ key, label }) => (
+          {METRIC_LABELS.map(({ key, label, wide }) => (
             <div
               key={key}
-              className="rounded-md border border-slate-100 bg-slate-50/80 px-4 py-3"
+              className={`rounded-md border border-slate-100 bg-slate-50/80 px-4 py-3 ${
+                wide ? "sm:col-span-2 lg:col-span-3" : ""
+              }`}
             >
               <dt className="text-xs font-medium text-slate-500">{label}</dt>
               <dd className="mt-1 text-sm font-semibold leading-snug text-slate-900">
@@ -78,6 +93,24 @@ export function AnalysisResults({
             </div>
           ))}
         </dl>
+        <p className="mt-4 text-xs font-medium uppercase tracking-wide text-slate-400">
+          Independent calculation check
+        </p>
+        <p className="mt-1 text-sm leading-relaxed whitespace-pre-line text-slate-600">
+          {result.calculationNotes}
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Sources and document conflicts
+        </h3>
+        <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+          From filings
+        </p>
+        <p className="mt-1 text-sm leading-relaxed whitespace-pre-line text-slate-700">
+          {result.documentConflicts}
+        </p>
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
@@ -119,8 +152,20 @@ export function AnalysisResults({
         <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
           Liquidity &amp; debt maturities
         </h3>
-        <p className="mt-4 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
+        <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+          From filings
+        </p>
+        <p className="mt-1 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
           {result.liquidityAndMaturities}
+        </p>
+        <h4 className="mt-5 text-xs font-medium uppercase tracking-wide text-slate-500">
+          Capital expenditure requirements
+        </h4>
+        <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+          From filings
+        </p>
+        <p className="mt-1 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
+          {result.capitalExpenditures}
         </p>
       </div>
 
