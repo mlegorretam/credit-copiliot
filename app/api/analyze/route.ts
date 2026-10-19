@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  MAX_PDF_BYTES,
+  MIN_DOCUMENT_TEXT_CHARS,
   MIN_EXTRACTED_TEXT_CHARS,
 } from "@/lib/constants";
-import { prepareFilingContext } from "@/lib/filing/prepare-context";
+import { prepareDocumentsContext } from "@/lib/filing/prepare-context";
 import { analyzeFilingWithLlm } from "@/lib/llm/analyze-filing";
 import { extractPdfText } from "@/lib/pdf/extract-text";
 import {
@@ -12,14 +12,18 @@ import {
   logOpenAiEnvStatus,
 } from "@/lib/server/analyze-logger";
 import type { CreditAnalysisResult } from "@/lib/types/credit-analysis";
+import {
+  disambiguateFileNames,
+  validatePdfUploads,
+} from "@/lib/uploads/pdf-files";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
-function isPdfUpload(file: File): boolean {
-  return (
-    file.type === "application/pdf" ||
-    file.name.toLowerCase().endsWith(".pdf")
+function readUploadedFiles(formData: FormData): File[] {
+  const raw = [...formData.getAll("file"), ...formData.getAll("files")];
+  return raw.filter(
+    (item): item is File => item instanceof File && item.name.trim().length > 0,
   );
 }
 
@@ -38,8 +42,6 @@ export async function POST(request: Request) {
     }
 
     const companyNameRaw = formData.get("companyName");
-    const fileRaw = formData.get("file");
-
     if (typeof companyNameRaw !== "string" || !companyNameRaw.trim()) {
       return NextResponse.json(
         { error: "Company name is required." },
@@ -47,72 +49,87 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!(fileRaw instanceof File)) {
+    const uploads = readUploadedFiles(formData);
+    const validation = validatePdfUploads(uploads);
+    if (!validation.ok) {
       return NextResponse.json(
-        { error: "A PDF filing is required." },
-        { status: 400 },
+        { error: validation.error },
+        { status: validation.status },
       );
     }
 
-    if (!isPdfUpload(fileRaw)) {
-      return NextResponse.json(
-        { error: "Only PDF files are supported." },
-        { status: 400 },
-      );
-    }
-
-    if (fileRaw.size > MAX_PDF_BYTES) {
-      return NextResponse.json(
-        { error: "PDF must be 10 MB or smaller." },
-        { status: 413 },
-      );
-    }
-
-    if (fileRaw.size === 0) {
-      return NextResponse.json(
-        { error: "The uploaded PDF is empty." },
-        { status: 400 },
-      );
-    }
-
+    const displayNames = disambiguateFileNames(uploads.map((file) => file.name));
     const companyName = companyNameRaw.trim();
-    const buffer = Buffer.from(await fileRaw.arrayBuffer());
+    const included: Array<{
+      fileName: string;
+      text: string;
+      totalPages: number;
+      extractedTextChars: number;
+    }> = [];
+    const extractionNotes: string[] = [];
 
-    let extracted;
-    try {
-      extracted = await extractPdfText(buffer);
-      logAnalyzeInfo("PDF extracted", {
-        fileName: fileRaw.name,
-        fileSizeBytes: fileRaw.size,
-        totalPages: extracted.totalPages,
-        extractedTextChars: extracted.text.length,
-      });
-    } catch (err) {
-      logAnalyzeError("pdf-extract", err, {
-        fileName: fileRaw.name,
-        fileSizeBytes: fileRaw.size,
-      });
+    for (let index = 0; index < uploads.length; index += 1) {
+      const file = uploads[index];
+      const fileName = displayNames[index] ?? file.name;
+      const buffer = Buffer.from(await file.arrayBuffer());
+
+      try {
+        const extracted = await extractPdfText(buffer);
+        logAnalyzeInfo("PDF extracted", {
+          fileName,
+          fileSizeBytes: file.size,
+          totalPages: extracted.totalPages,
+          extractedTextChars: extracted.text.length,
+        });
+        if (extracted.text.length < MIN_DOCUMENT_TEXT_CHARS) {
+          extractionNotes.push(
+            `${fileName} contained too little extractable text and was excluded.`,
+          );
+          continue;
+        }
+        included.push({
+          fileName,
+          text: extracted.text,
+          totalPages: extracted.totalPages,
+          extractedTextChars: extracted.text.length,
+        });
+      } catch (err) {
+        logAnalyzeError("pdf-extract", err, {
+          fileName,
+          fileSizeBytes: file.size,
+        });
+        extractionNotes.push(
+          `${fileName} could not be read as a text-based PDF and was excluded.`,
+        );
+      }
+    }
+
+    const combinedChars = included.reduce(
+      (sum, document) => sum + document.text.length,
+      0,
+    );
+    if (included.length === 0 || combinedChars < MIN_EXTRACTED_TEXT_CHARS) {
+      const detail = extractionNotes.join(" ");
       return NextResponse.json(
         {
-          error:
-            "Could not read this PDF. Ensure it is a text-based document (not a scanned image).",
+          error: detail
+            ? `Too little text was extracted. ${detail} Text-based filings work best; scanned documents without OCR are not supported.`
+            : "Too little text was extracted from this PDF. Text-based filings work best; scanned documents without OCR are not supported.",
         },
         { status: 422 },
       );
     }
 
-    if (extracted.text.length < MIN_EXTRACTED_TEXT_CHARS) {
-      return NextResponse.json(
-        {
-          error:
-            "Too little text was extracted from this PDF. Text-based filings work best; scanned documents without OCR are not supported.",
-        },
-        { status: 422 },
-      );
-    }
-
-    const prepared = prepareFilingContext(extracted.text);
+    const prepared = prepareDocumentsContext(
+      included.map((document) => ({
+        fileName: document.fileName,
+        text: document.text,
+        totalPages: document.totalPages,
+      })),
+    );
     logAnalyzeInfo("Filing context prepared", {
+      documentCount: included.length,
+      excludedCount: extractionNotes.length,
       originalCharCount: prepared.originalCharCount,
       contextCharCount: prepared.text.length,
       truncated: prepared.truncated,
@@ -122,14 +139,15 @@ export async function POST(request: Request) {
     try {
       result = await analyzeFilingWithLlm({
         companyName,
-        fileName: fileRaw.name,
+        fileNames: included.map((document) => document.fileName),
         filingExcerpt: prepared.text,
         excerptTruncated: prepared.truncated,
+        extractionNotes,
       });
     } catch (err) {
       logAnalyzeError("analyze-filing", err, {
         companyName,
-        fileName: fileRaw.name,
+        fileNames: included.map((document) => document.fileName),
         contextCharCount: prepared.text.length,
         truncated: prepared.truncated,
       });
@@ -151,8 +169,18 @@ export async function POST(request: Request) {
       result,
       meta: {
         companyName,
-        fileName: fileRaw.name,
-        totalPages: extracted.totalPages,
+        fileName: included.map((document) => document.fileName).join("; "),
+        fileNames: included.map((document) => document.fileName),
+        totalPages: included.reduce(
+          (sum, document) => sum + document.totalPages,
+          0,
+        ),
+        documents: included.map((document) => ({
+          fileName: document.fileName,
+          totalPages: document.totalPages,
+          extractedTextChars: document.extractedTextChars,
+        })),
+        excluded: extractionNotes,
         excerptTruncated: prepared.truncated,
       },
     });
