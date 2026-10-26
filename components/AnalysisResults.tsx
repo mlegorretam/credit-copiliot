@@ -1,28 +1,33 @@
+import { DataQualityList } from "@/components/DataQualityList";
+import { DebtLiquidityPanel } from "@/components/DebtLiquidityPanel";
+import { FinancialTrendsPanel } from "@/components/FinancialTrendsPanel";
+import { MetricDashboard } from "@/components/MetricDashboard";
 import type { CreditAnalysisResult } from "@/lib/types/credit-analysis";
 
-const METRIC_LABELS: Array<{
-  key: keyof CreditAnalysisResult["keyMetrics"];
-  label: string;
-  wide?: boolean;
-}> = [
-  { key: "totalDebt", label: "Total debt" },
-  { key: "cash", label: "Cash" },
-  { key: "netDebt", label: "Net debt" },
-  { key: "ebitda", label: "EBITDA" },
-  { key: "netLeverage", label: "Net leverage (independent)" },
-  { key: "reportedLeverage", label: "Reported leverage" },
-  { key: "interestCoverage", label: "Interest coverage" },
-  { key: "liquidity", label: "Liquidity" },
-  { key: "affo", label: "AFFO" },
-  { key: "reitMetrics", label: "REIT metrics", wide: true },
-];
+const CATEGORY_ORDER = [
+  "leverage",
+  "cash_flow",
+  "refinancing",
+  "capital_allocation",
+  "downside_protection",
+  "other",
+] as const;
+
+const CATEGORY_LABELS: Record<(typeof CATEGORY_ORDER)[number], string> = {
+  leverage: "Leverage",
+  cash_flow: "Cash flow",
+  refinancing: "Refinancing",
+  capital_allocation: "Capital allocation",
+  downside_protection: "Downside protection",
+  other: "Other",
+};
 
 function severityClass(severity: "Low" | "Moderate" | "High"): string {
   switch (severity) {
     case "Low":
-      return "border-emerald-200 bg-emerald-50 text-emerald-900";
+      return "border-slate-200 bg-slate-50 text-slate-700";
     case "Moderate":
-      return "border-amber-200 bg-amber-50 text-amber-900";
+      return "border-amber-200 bg-amber-50 text-amber-950";
     case "High":
       return "border-red-200 bg-red-50 text-red-900";
   }
@@ -39,106 +44,147 @@ export function AnalysisResults({
   heading = "Analysis results",
   showLiveDisclaimer = false,
 }: AnalysisResultsProps) {
+  const questions = CATEGORY_ORDER.map((category) => ({
+    category,
+    items: result.diligenceQuestions.filter((item) => item.category === category),
+  })).filter((group) => group.items.length > 0);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {showLiveDisclaimer ? (
-        <p className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
-          AI-assisted first-pass credit screen only. Verify all figures, ratios,
-          and conclusions against the source filings and independent research.
-          Not investment advice.
+        <p className="border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-600">
+          First-pass credit screen from the uploaded filings. Figures stay in
+          the units used for the calculation; the dashboard shows $M or $B.
+          Company-reported amounts and independent calculations are labeled
+          separately. This is not a buy, sell, or hold recommendation and it
+          does not estimate market prices.
         </p>
       ) : null}
 
+      <nav className="flex flex-wrap gap-2 text-xs" aria-label="Analysis sections">
+        {[
+          ["credit-overview", "Credit Overview"],
+          ["financial-trends", "Financial Trends"],
+          ["debt-liquidity", "Debt & Liquidity"],
+          ["credit-risks", "Credit Risks & Liquidity"],
+          ["investment-considerations", "Investment Considerations"],
+        ].map(([id, label]) => (
+          <a
+            key={id}
+            href={`#${id}`}
+            className="border border-slate-200 bg-white px-2.5 py-1 text-slate-700 hover:border-slate-400"
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+
       {result.analyzedDocuments.length > 0 ? (
         <p className="text-xs text-slate-600">
-          <span className="font-medium text-slate-700">Documents analyzed: </span>
+          <span className="font-medium text-slate-800">Documents analyzed: </span>
           {result.analyzedDocuments.join("; ")}
         </p>
       ) : null}
 
-      <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Overall credit risk
-        </h3>
-        <p className="mt-2 text-2xl font-semibold text-slate-900">
-          {result.overallCreditRisk}
-        </p>
-        <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-          AI interpretation
-        </p>
-        <p className="mt-1 text-sm text-slate-600">{result.riskSummary}</p>
-      </div>
+      <section id="credit-overview" className="scroll-mt-6 space-y-4">
+        <header>
+          <h3 className="text-sm font-semibold text-slate-950">Credit Overview</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Headline figures use the source scale internally. Open a metric for
+            the original amount, period, and source.
+          </p>
+        </header>
+        <div className="border border-slate-200 bg-white px-3 py-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              Overall credit risk
+            </p>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              AI interpretation
+            </p>
+          </div>
+          <p className="mt-1 text-2xl font-semibold text-slate-950">
+            {result.overallCreditRisk}
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-slate-700">
+            {result.riskSummary}
+          </p>
+        </div>
+        <MetricDashboard metrics={result.dashboard} />
+        {result.keyMetrics.reitMetrics.trim() &&
+        result.keyMetrics.reitMetrics !== "Not available." ? (
+          <div className="border border-slate-200 bg-white px-3 py-2.5">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              Other REIT disclosures
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-700">
+              {result.keyMetrics.reitMetrics}
+            </p>
+          </div>
+        ) : null}
+        <div>
+          <h4 className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            Data quality
+          </h4>
+          <div className="mt-2">
+            <DataQualityList checks={result.dataQuality} />
+          </div>
+        </div>
+      </section>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Key metrics
-        </h3>
-        <p className="mt-1 text-xs text-slate-500">
-          From the uploaded documents when stated, with the source document
-          identified. Otherwise &ldquo;Not available.&rdquo; Independent ratios
-          are labeled separately from company-reported ratios.
-        </p>
-        <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {METRIC_LABELS.map(({ key, label, wide }) => (
-            <div
-              key={key}
-              className={`rounded-md border border-slate-100 bg-slate-50/80 px-4 py-3 ${
-                wide ? "sm:col-span-2 lg:col-span-3" : ""
-              }`}
-            >
-              <dt className="text-xs font-medium text-slate-500">{label}</dt>
-              <dd className="mt-1 text-sm font-semibold leading-snug text-slate-900">
-                {result.keyMetrics[key]}
-              </dd>
-            </div>
-          ))}
-        </dl>
-        <p className="mt-4 text-xs font-medium uppercase tracking-wide text-slate-400">
-          Independent calculation check
-        </p>
-        <p className="mt-1 text-sm leading-relaxed whitespace-pre-line text-slate-600">
-          {result.calculationNotes}
-        </p>
-      </div>
+      <section id="financial-trends" className="scroll-mt-6 space-y-3">
+        <header>
+          <h3 className="text-sm font-semibold text-slate-950">Financial Trends</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Annual figures use the fiscal years printed in the filing. A ratio
+            is blank when its inputs are not both available for that year.
+          </p>
+        </header>
+        <FinancialTrendsPanel trends={result.financialTrends} />
+      </section>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Sources and document conflicts
-        </h3>
-        <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-          From filings
-        </p>
-        <p className="mt-1 text-sm leading-relaxed whitespace-pre-line text-slate-700">
-          {result.documentConflicts}
-        </p>
-      </div>
+      <section id="debt-liquidity" className="scroll-mt-6 space-y-3">
+        <header>
+          <h3 className="text-sm font-semibold text-slate-950">Debt & Liquidity</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Maturity amounts are taken from a schedule printed in the filing.
+            Missing schedules stay unavailable.
+          </p>
+        </header>
+        <DebtLiquidityPanel
+          schedule={result.maturitySchedule}
+          liquidity={result.liquidityAndMaturities}
+        />
+      </section>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Key credit risks
-        </h3>
-        <ul className="mt-4 space-y-4">
+      <section id="credit-risks" className="scroll-mt-6 space-y-3">
+        <header>
+          <h3 className="text-sm font-semibold text-slate-950">
+            Credit Risks & Liquidity
+          </h3>
+        </header>
+        <ul className="space-y-3 border border-slate-200 bg-white px-3 py-3">
           {result.keyCreditRisks.map((risk) => (
             <li
               key={risk.title}
-              className="border-b border-slate-100 pb-4 last:border-0 last:pb-0"
+              className="border-b border-slate-100 pb-3 last:border-0 last:pb-0"
             >
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-slate-900">
+                <span className="text-sm font-semibold text-slate-950">
                   {risk.title}
                 </span>
                 <span
-                  className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${severityClass(risk.severity)}`}
+                  className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${severityClass(risk.severity)}`}
                 >
                   {risk.severity}
                 </span>
               </div>
-              <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+              <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
                 AI interpretation
               </p>
               <p className="mt-1 text-sm text-slate-700">{risk.explanation}</p>
-              <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-                Supporting evidence (from filing)
+              <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                Factual disclosure
               </p>
               <p className="mt-1 text-sm text-slate-600 italic">
                 {risk.supportingEvidence}
@@ -146,39 +192,64 @@ export function AnalysisResults({
             </li>
           ))}
         </ul>
-      </div>
+        <div className="border border-slate-200 bg-white px-3 py-3">
+          <h4 className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            Capital expenditures
+          </h4>
+          <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+            Factual disclosure
+          </p>
+          <p className="mt-1 text-sm leading-relaxed whitespace-pre-line text-slate-700">
+            {result.capitalExpenditures}
+          </p>
+        </div>
+      </section>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Liquidity &amp; debt maturities
-        </h3>
-        <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-          From filings
-        </p>
-        <p className="mt-1 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
-          {result.liquidityAndMaturities}
-        </p>
-        <h4 className="mt-5 text-xs font-medium uppercase tracking-wide text-slate-500">
-          Capital expenditure requirements
-        </h4>
-        <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-          From filings
-        </p>
-        <p className="mt-1 text-sm leading-relaxed text-slate-700 whitespace-pre-line">
-          {result.capitalExpenditures}
-        </p>
-      </div>
-
-      <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Questions for further diligence
-        </h3>
-        <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-700">
-          {result.diligenceQuestions.map((q) => (
-            <li key={q}>{q}</li>
+      <section id="investment-considerations" className="scroll-mt-6 space-y-3">
+        <header>
+          <h3 className="text-sm font-semibold text-slate-950">
+            Investment Considerations
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Diligence questions are AI interpretations of gaps and disclosed
+            risks. They are not a recommendation and they do not imply a price.
+          </p>
+        </header>
+        <div className="space-y-3">
+          {questions.map((group) => (
+            <div
+              key={group.category}
+              className="border border-slate-200 bg-white px-3 py-3"
+            >
+              <h4 className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                {CATEGORY_LABELS[group.category]}
+              </h4>
+              <ul className="mt-2 list-disc space-y-1.5 pl-4 text-sm text-slate-700">
+                {group.items.map((item) => (
+                  <li key={item.question}>{item.question}</li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </ol>
-      </div>
+        </div>
+        <div className="border border-slate-200 bg-white px-3 py-3">
+          <h4 className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            Sources and conflicts
+          </h4>
+          <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+            Factual disclosure
+          </p>
+          <p className="mt-1 text-sm leading-relaxed whitespace-pre-line text-slate-700">
+            {result.documentConflicts}
+          </p>
+          <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+            Calculation notes
+          </p>
+          <p className="mt-1 text-xs leading-relaxed whitespace-pre-line text-slate-600">
+            {result.calculationNotes}
+          </p>
+        </div>
+      </section>
 
       <p className="sr-only">{heading}</p>
     </div>

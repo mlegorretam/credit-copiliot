@@ -3,6 +3,7 @@ import {
   MIN_DOCUMENT_TEXT_CHARS,
   MIN_EXTRACTED_TEXT_CHARS,
 } from "@/lib/constants";
+import { buildFilingText, buildHistoricalSource } from "@/lib/filing/historical-source";
 import { prepareDocumentsContext } from "@/lib/filing/prepare-context";
 import { analyzeFilingWithLlm } from "@/lib/llm/analyze-filing";
 import { extractPdfText } from "@/lib/pdf/extract-text";
@@ -133,6 +134,7 @@ export async function POST(request: Request) {
       originalCharCount: prepared.originalCharCount,
       contextCharCount: prepared.text.length,
       truncated: prepared.truncated,
+      omittedSections: prepared.omittedSections,
     });
 
     let result: CreditAnalysisResult;
@@ -143,6 +145,21 @@ export async function POST(request: Request) {
         filingExcerpt: prepared.text,
         excerptTruncated: prepared.truncated,
         extractionNotes,
+        omissions: prepared.omittedSections,
+        historicalSource: buildHistoricalSource(
+          included.map((document) => ({
+            fileName: document.fileName,
+            text: document.text,
+            totalPages: document.totalPages,
+          })),
+        ),
+        filingText: buildFilingText(
+          included.map((document) => ({
+            fileName: document.fileName,
+            text: document.text,
+            totalPages: document.totalPages,
+          })),
+        ),
       });
     } catch (err) {
       logAnalyzeError("analyze-filing", err, {

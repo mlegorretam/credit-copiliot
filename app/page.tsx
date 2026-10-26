@@ -3,41 +3,9 @@
 import { useCallback, useRef, useState } from "react";
 import { AnalysisResults } from "@/components/AnalysisResults";
 import { MAX_PDF_BYTES, MAX_PDF_FILES, MAX_TOTAL_PDF_BYTES } from "@/lib/constants";
+import { sampleAnalysis } from "@/lib/preview/sample-analysis";
 import type { CreditAnalysisResult } from "@/lib/types/credit-analysis";
 import { addPdfSelections } from "@/lib/uploads/pdf-files";
-
-const SAMPLE_METRICS = [
-  { label: "Net Leverage", value: "3.2x", note: "Total net debt / LTM EBITDA" },
-  {
-    label: "Interest Coverage",
-    value: "4.1x",
-    note: "LTM EBITDA / cash interest",
-  },
-  {
-    label: "Liquidity",
-    value: "$420M",
-    note: "Cash + undrawn revolver availability",
-  },
-] as const;
-
-const SAMPLE_RISKS = [
-  "Elevated leverage following recent acquisition; integration execution risk.",
-  "Customer concentration: top three customers represent ~42% of revenue.",
-  "Covenant headroom narrowing if EBITDA declines more than 10% YoY.",
-] as const;
-
-const SAMPLE_MATURITIES = [
-  "Revolver ($150M) matures Q2 2027; currently undrawn.",
-  "$500M Term Loan B due 2029; SOFR + 225 bps, 1% floor.",
-  "No near-term maturities before 2027; manageable amortization profile.",
-] as const;
-
-const SAMPLE_QUESTIONS = [
-  "What is management's plan to de-lever over the next 12–18 months?",
-  "Are there material off-balance-sheet obligations or pension underfunding?",
-  "How sensitive is free cash flow to a 200 bps rise in reference rates?",
-  "What drove the decline in gross margin in the most recent quarter?",
-] as const;
 
 function formatMaxSizeMb(): string {
   return `${MAX_PDF_BYTES / (1024 * 1024)} MB`;
@@ -58,10 +26,7 @@ function SampleResultsPreview() {
   return (
     <>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2
-          id="results-heading"
-          className="text-lg font-semibold text-slate-900"
-        >
+        <h2 id="results-heading" className="text-lg font-semibold text-slate-900">
           Analysis preview
         </h2>
         <span className="inline-flex w-fit items-center rounded border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
@@ -69,78 +34,12 @@ function SampleResultsPreview() {
         </span>
       </div>
       <p className="mt-2 text-sm text-slate-600">
-        Run an analysis to replace this preview with live output from your
-        uploaded filings.
+        Run an analysis to replace this preview with output from your uploaded
+        filings. The sample figures below are checked against a short sample
+        excerpt, not a live company filing.
       </p>
-
-      <div className="mt-6 space-y-6">
-        <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Overall credit risk
-          </h3>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">
-            Moderate
-          </p>
-          <p className="mt-1 text-sm text-slate-600">
-            Balanced leverage and coverage; monitor liquidity and covenant
-            trends.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Key metrics
-          </h3>
-          <dl className="mt-4 grid gap-4 sm:grid-cols-3">
-            {SAMPLE_METRICS.map((m) => (
-              <div
-                key={m.label}
-                className="rounded-md border border-slate-100 bg-slate-50/80 px-4 py-3"
-              >
-                <dt className="text-xs font-medium text-slate-500">
-                  {m.label}
-                </dt>
-                <dd className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
-                  {m.value}
-                </dd>
-                <dd className="mt-1 text-xs text-slate-500">{m.note}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-
-        <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Key credit risks
-          </h3>
-          <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-slate-700">
-            {SAMPLE_RISKS.map((risk) => (
-              <li key={risk}>{risk}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Liquidity &amp; debt maturities
-          </h3>
-          <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-slate-700">
-            {SAMPLE_MATURITIES.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Questions for further diligence
-          </h3>
-          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-700">
-            {SAMPLE_QUESTIONS.map((q) => (
-              <li key={q}>{q}</li>
-            ))}
-          </ol>
-        </div>
+      <div className="mt-6">
+        <AnalysisResults result={sampleAnalysis} heading="Analysis preview" />
       </div>
     </>
   );
@@ -243,7 +142,7 @@ export default function Home() {
   return (
     <div className="flex min-h-full flex-col">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-10">
+        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
           <p className="text-xs font-medium uppercase tracking-widest text-slate-500">
             Institutional credit workflow
           </p>
@@ -256,7 +155,7 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
         <p className="max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-base">
           Upload one or more company filings to identify key credit risks,
           financial metrics, and areas for further diligence.
@@ -457,7 +356,7 @@ export default function Home() {
 
       <footer className="mt-auto border-t border-slate-200 bg-white py-6">
         <p className="text-center text-xs text-slate-500">
-          Credit Copilot MVP — first-pass credit screen. Not investment advice.
+          Credit Copilot — first-pass credit screen. Not investment advice and not a recommendation to buy, sell, or hold.
         </p>
       </footer>
     </div>
