@@ -80,8 +80,11 @@ function joinLine(items: PositionedText[]): string {
   return text.replace(/[^\S\n]+/g, " ").trim();
 }
 
-export async function extractPdfText(buffer: Buffer): Promise<PdfExtractResult> {
-  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+export async function extractPdfText(
+  data: Uint8Array | ArrayBuffer,
+): Promise<PdfExtractResult> {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const pdf = await getDocumentProxy(bytes);
   try {
     const positioned = await extractTextItems(pdf);
     const laidOut = layoutItemsToText(positioned.items).trim();

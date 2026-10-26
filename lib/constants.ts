@@ -6,6 +6,12 @@ export const MAX_PDF_FILES = 8;
 /** Combined upload limit across all PDFs in one request. */
 export const MAX_TOTAL_PDF_BYTES = 40 * 1024 * 1024;
 
+/**
+ * Stay under Vercel’s 4.5 MB function body limit, including multipart overhead.
+ * Larger PDFs are extracted in the browser and sent as JSON text.
+ */
+export const MAX_HOSTED_UPLOAD_BYTES = 4 * 1024 * 1024;
+
 /** Character budget for a single filing sent to the model. */
 export const MAX_FILING_CONTEXT_CHARS = 100_000;
 

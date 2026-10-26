@@ -20,6 +20,7 @@ import {
   type DebtInstrumentInput,
   type SourcedAmount,
 } from "../lib/types/credit-analysis";
+import { parseAnalyzeJson } from "../lib/analyze/extracted-documents";
 import {
   addPdfSelections,
   disambiguateFileNames,
@@ -434,6 +435,39 @@ const single = validatePdfUploads([
   { name: "annual.pdf", size: 1024, type: "application/pdf" },
 ]);
 check(single.ok, "a single PDF should remain valid");
+
+const jsonOk = parseAnalyzeJson({
+  companyName: "Acme",
+  documents: [
+    { fileName: "10k.pdf", text: "x".repeat(80), totalPages: 12 },
+  ],
+});
+check(jsonOk.ok, "JSON analyze payload should be accepted");
+if (jsonOk.ok) {
+  check(jsonOk.input.included[0]?.extractedTextChars === 80, "JSON text length should be stored");
+}
+
+const jsonMissingCompany = parseAnalyzeJson({
+  documents: [{ fileName: "10k.pdf", text: "x".repeat(80), totalPages: 1 }],
+});
+check(
+  !jsonMissingCompany.ok && jsonMissingCompany.status === 400,
+  "JSON without a company name should be rejected",
+);
+
+const jsonEmptyText = parseAnalyzeJson({
+  companyName: "Acme",
+  documents: [{ fileName: "scan.pdf", text: "short", totalPages: 1 }],
+  extractionNotes: ["scan.pdf could not be read as a text-based PDF and was excluded."],
+});
+check(jsonEmptyText.ok, "JSON with short documents should parse");
+if (jsonEmptyText.ok) {
+  check(jsonEmptyText.input.included.length === 0, "short JSON documents should be excluded");
+  check(
+    jsonEmptyText.input.extractionNotes.some((note) => note.includes("scan.pdf")),
+    "short JSON documents should record an exclusion note",
+  );
+}
 
 const multi = validatePdfUploads([
   { name: "10k.pdf", size: 1024, type: "application/pdf" },

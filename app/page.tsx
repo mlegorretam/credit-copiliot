@@ -2,7 +2,13 @@
 
 import { useCallback, useRef, useState } from "react";
 import { AnalysisResults } from "@/components/AnalysisResults";
-import { MAX_PDF_BYTES, MAX_PDF_FILES, MAX_TOTAL_PDF_BYTES } from "@/lib/constants";
+import {
+  MAX_HOSTED_UPLOAD_BYTES,
+  MAX_PDF_BYTES,
+  MAX_PDF_FILES,
+  MAX_TOTAL_PDF_BYTES,
+} from "@/lib/constants";
+import { extractPdfUploads } from "@/lib/pdf/extract-uploads";
 import { sampleAnalysis } from "@/lib/preview/sample-analysis";
 import type { CreditAnalysisResult } from "@/lib/types/credit-analysis";
 import { addPdfSelections } from "@/lib/uploads/pdf-files";
@@ -20,6 +26,30 @@ function formatFileSize(bytes: number): string {
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function totalFileBytes(uploads: File[]): number {
+  return uploads.reduce((sum, file) => sum + file.size, 0);
+}
+
+function analyzeErrorFromResponse(status: number, raw: string): string {
+  try {
+    const payload = JSON.parse(raw) as { error?: string; detail?: string };
+    const parts = [payload.error, payload.detail].filter(Boolean);
+    if (parts.length > 0) return parts.join(" ");
+  } catch {
+    // Vercel 413/504 responses are often HTML or plain text, not JSON.
+  }
+  if (status === 413) {
+    return "This filing is too large for the hosted server. Try a smaller text-based PDF, or run the analysis locally.";
+  }
+  if (status === 504 || status === 408) {
+    return "The analysis timed out. Try fewer or shorter filings.";
+  }
+  if (status >= 500) {
+    return "The server could not complete this analysis. Please try again.";
+  }
+  return "Analysis failed. Please try again with a text-based PDF.";
 }
 
 function SampleResultsPreview() {
@@ -54,6 +84,7 @@ export default function Home() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] =
     useState<CreditAnalysisResult | null>(null);
 
@@ -95,32 +126,74 @@ export default function Home() {
     }
 
     setIsAnalyzing(true);
+    setStatusMessage("Analyzing documents… This may take up to a minute.");
 
     try {
-      const formData = new FormData();
-      formData.append("companyName", companyName.trim());
-      for (const file of files) {
-        formData.append("file", file);
+      let response: Response;
+      if (totalFileBytes(files) > MAX_HOSTED_UPLOAD_BYTES) {
+        setStatusMessage("Extracting text from large filings…");
+        const extracted = await extractPdfUploads(files);
+        if (extracted.documents.length === 0) {
+          const detail = extracted.extractionNotes.join(" ");
+          setAnalysisError(
+            detail
+              ? `Too little text was extracted. ${detail} Text-based filings work best; scanned documents without OCR are not supported.`
+              : "Too little text was extracted from this PDF. Text-based filings work best; scanned documents without OCR are not supported.",
+          );
+          return;
+        }
+
+        const body = JSON.stringify({
+          companyName: companyName.trim(),
+          documents: extracted.documents,
+          extractionNotes: extracted.extractionNotes,
+        });
+        if (new TextEncoder().encode(body).length > MAX_HOSTED_UPLOAD_BYTES) {
+          setAnalysisError(
+            "Extracted filing text is too large for the hosted server. Try fewer filings.",
+          );
+          return;
+        }
+
+        setStatusMessage(
+          "Analyzing documents… This may take up to a minute, and longer when several filings are included.",
+        );
+        response = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+      } else {
+        const formData = new FormData();
+        formData.append("companyName", companyName.trim());
+        for (const file of files) {
+          formData.append("file", file);
+        }
+        response = await fetch("/api/analyze", {
+          method: "POST",
+          body: formData,
+        });
       }
 
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        body: formData,
-      });
-
-      const payload = (await response.json()) as {
+      const raw = await response.text();
+      let payload: {
         error?: string;
         detail?: string;
         result?: CreditAnalysisResult;
       };
+      try {
+        payload = JSON.parse(raw) as {
+          error?: string;
+          detail?: string;
+          result?: CreditAnalysisResult;
+        };
+      } catch {
+        setAnalysisError(analyzeErrorFromResponse(response.status, raw));
+        return;
+      }
 
       if (!response.ok) {
-        const parts = [
-          payload.error ??
-            "Analysis failed. Please try again with a text-based PDF.",
-          payload.detail,
-        ].filter(Boolean);
-        setAnalysisError(parts.join(" "));
+        setAnalysisError(analyzeErrorFromResponse(response.status, raw));
         return;
       }
 
@@ -136,6 +209,7 @@ export default function Home() {
       );
     } finally {
       setIsAnalyzing(false);
+      setStatusMessage(null);
     }
   };
 
@@ -315,8 +389,8 @@ export default function Home() {
                 className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700"
                 aria-hidden
               />
-              Analyzing documents… This may take up to a minute, and longer
-              when several filings are included.
+              {statusMessage ??
+                "Analyzing documents… This may take up to a minute, and longer when several filings are included."}
             </div>
           ) : null}
 
