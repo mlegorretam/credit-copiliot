@@ -12,8 +12,21 @@ import { applyFinancialValidation } from "@/lib/credit/validate-metrics";
 import {
   creditAnalysisJsonSchema,
   creditAnalysisSchema,
+  NOT_AVAILABLE,
   type CreditAnalysisResult,
 } from "@/lib/types/credit-analysis";
+
+function fillBlankDisplays(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const metrics = (value as { keyMetrics?: unknown }).keyMetrics;
+  if (!metrics || typeof metrics !== "object") return value;
+  for (const [key, field] of Object.entries(metrics)) {
+    if (typeof field === "string" && field.trim() === "") {
+      (metrics as Record<string, string>)[key] = NOT_AVAILABLE;
+    }
+  }
+  return value;
+}
 
 function getOpenAIClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -29,6 +42,9 @@ export async function analyzeFilingWithLlm(params: {
   filingExcerpt: string;
   excerptTruncated: boolean;
   extractionNotes?: string[];
+  omissions?: string[];
+  historicalSource?: string;
+  filingText?: string;
 }): Promise<CreditAnalysisResult> {
   const client = getOpenAIClient();
   const model = process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
@@ -87,7 +103,7 @@ export async function analyzeFilingWithLlm(params: {
     throw new Error("The model returned invalid JSON.");
   }
 
-  const validated = creditAnalysisSchema.safeParse(parsed);
+  const validated = creditAnalysisSchema.safeParse(fillBlankDisplays(parsed));
   if (!validated.success) {
     logAnalyzeError("zod-validation", validated.error, {
       zodIssues: validated.error.issues,
@@ -111,5 +127,8 @@ export async function analyzeFilingWithLlm(params: {
     excerpt: params.filingExcerpt,
     excerptTruncated: params.excerptTruncated,
     extractionNotes: params.extractionNotes,
+    omissions: params.omissions,
+    historicalSource: params.historicalSource,
+    filingText: params.filingText,
   });
 }
